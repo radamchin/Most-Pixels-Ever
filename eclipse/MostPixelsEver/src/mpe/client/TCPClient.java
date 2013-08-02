@@ -22,12 +22,11 @@ import java.util.TimerTask;
 
 import mpe.config.FileParser;
 
-// import mpe.utils.Timeout;
 import processing.core.PApplet;
 import processing.core.PConstants;
 import processing.core.PGraphics3D;
 
-public class TCPClient extends Thread { //implements Timeout.IListener {
+public class TCPClient extends Thread {
     /** If DEBUG is true, the client will print lots of messages about what it is doing.
      * Set with debug=1; in your INI file. */
     public static boolean DEBUG = false;
@@ -995,7 +994,7 @@ public class TCPClient extends Thread { //implements Timeout.IListener {
     }
     
     
-  //********************** connect timer  **********************************   
+  //********************** re-connect timer  **********************************   
     
     private class ConnectionCheckTimerTask extends TimerTask{
     	
@@ -1013,7 +1012,7 @@ public class TCPClient extends Thread { //implements Timeout.IListener {
     	public void run() {
     	   	//out("Connect Timer Elapsed @" + (new Date()) + " connected=" + connected);
     	   	if(!connected) {
-        		out("connection timer elapsed with no connection @ " + (new Date()) + ". Attempting reconnection to " + getAddress()); // " @" + System.currentTimeMillis());
+        		out("Connection timer elapsed with no connection @ " + (new Date()) + ". Attempting reconnection to " + getAddress()); // " @" + System.currentTimeMillis());
         		start();
         	}
     	   	
