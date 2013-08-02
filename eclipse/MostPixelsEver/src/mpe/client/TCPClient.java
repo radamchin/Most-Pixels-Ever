@@ -9,23 +9,25 @@
 package mpe.client;
 
 import java.io.BufferedReader;
-//import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.IOException;
+import java.io.OutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.net.Socket;
+import java.util.Date;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import mpe.config.FileParser;
 
+// import mpe.utils.Timeout;
 import processing.core.PApplet;
 import processing.core.PConstants;
-//import processing.core.PGraphics3D;
-import processing.opengl.PGraphics3D;
+import processing.core.PGraphics3D;
 
-public class TCPClient extends Thread {
+public class TCPClient extends Thread { //implements Timeout.IListener {
     /** If DEBUG is true, the client will print lots of messages about what it is doing.
      * Set with debug=1; in your INI file. */
     public static boolean DEBUG = false;
@@ -34,9 +36,11 @@ public class TCPClient extends Thread {
     FileParser fp;
     String hostName;
     int serverPort = 9002;
+    
     Socket socket;
     InputStream is;
     //DataInputStream dis;
+    
     BufferedReader brin;
     DataOutputStream dos;
     OutputStream os;
@@ -44,6 +48,7 @@ public class TCPClient extends Thread {
     PApplet p5parent;
     MpeDataListener parent;
     Method frameEventMethod;
+    Method resetEventMethod;
     
     /** The id is used for communication with the server, to let it know which 
      *  client is speaking and how to order the screens. */
@@ -69,13 +74,21 @@ public class TCPClient extends Thread {
     boolean rendering = false;
     boolean autoMode = false;
     
+    boolean connected = false; // adamh added to store state of socket connection
+    
     int   frameCount = 0;
     float fps = 0.f;
+    
+    float smoothed_fps = 0.f; //less jerky, avg like
+    float last_frame_time = 1000.f;
+    
+    // private float[] avg_fps_stack = new float[32]; // this is where we put fps samples to create avg from.
+    
     long  lastMs = 0;
     
     // Are we broadcasting?
     // boolean broadcastingData = false;
-    // Do we need to wait to broadcast b/c we have alreaddy done so this frame?
+    // Do we need to wait to broadcast b/c we have already done so this frame?
     // boolean waitToSend = false;
     // protected boolean sayDoneAgain = false;  // Do we need to say we're done after a lot of data has been sent
     
@@ -85,7 +98,7 @@ public class TCPClient extends Thread {
 
     protected boolean messageAvailable;      // Is a message available?
     protected boolean intsAvailable;         // Is an int array available?
-    protected boolean bytesAvailable;        // Is a byte array avaialble?
+    protected boolean bytesAvailable;        // Is a byte array available?
     protected String[] dataMessage;          // data that has come in
     protected int[] ints;                    // ints that have come in
     protected byte[] bytes;                  // bytes that have come in
@@ -95,14 +108,19 @@ public class TCPClient extends Thread {
     protected float fieldOfView = 30.0f;
     protected float cameraZ;
     
+    
+   // private Timeout connection_check_timeout;
+    private ConnectionCheckTimerTask connection_check_timer;
+    private boolean reconnection = false; // set true once a connection is lost and we need to reconnect
+    
     /**
      * Client is constructed with an init file location, and the parent PApplet.
-     * The parent PApplet must have a method called "frameEvent(Client c)".
+     * The parent PApplet must have a method called "mpeFrameEvent(Client c)" & "mpeResetEvent(Client c)".
      *
-     * The frameEvent handles syncing up the frame rate on the
+     * The mpeFrameEvent handles syncing up the frame rate on the
      * multiple screens.  A typical implementation may look like this:
      *
-     *  public void frameEvent(Client c){
+     *  public void mpeFrameEvent(Client c){
      *  if (!started) started = true;
      *    redraw();
      *  }
@@ -125,19 +143,48 @@ public class TCPClient extends Thread {
         loadIniFile(_fileString);
         connect(hostName, serverPort, id);
         
-        // look for a method called "frameEvent" in the parent PApplet, with one
+        // look for a method called "mpeFrameEvent" in the parent PApplet, with one
         // argument of type Client
         try {
-            frameEventMethod = p5parent.getClass().getMethod("frameEvent",
+            frameEventMethod = p5parent.getClass().getMethod("mpeFrameEvent",
                     new Class[] { TCPClient.class });
         } catch (Exception e) {
-            System.out.println("You are missing the frameEvent() method. " + e);
+            System.out.println("You are missing the mpeFrameEvent() method. " + e);
+        }
+        
+        try {
+        	resetEventMethod = p5parent.getClass().getMethod("mpeResetEvent",
+                    new Class[] { TCPClient.class });
+        } catch (Exception e) {
+            System.out.println("You are missing the mpeResetEvent() method. " + e);
         }
         
         if (autoMode) {
             p5parent.registerDraw(this);
         }
+      
         
+    }
+
+    /**
+     * Builds a Client using an INI file and a parent MpeDataListener.
+     * 
+     * The parent MpeDataListener must have a method called 
+     * "mpeFrameEvent(TCPClient c)", which handles syncing up the frame rate on the
+     * multiple screens.  A typical implementation may look like this:
+     *
+     * public void mpeFrameEvent(Client c){
+     *   if (!started) started = true;
+     *   // Do your computation and paint to the screen here
+     * }
+     *
+     * @param _fileString the path to the INI file 
+     * @param _p the parent MpeDataListener
+     */
+    public TCPClient(String _fileString, MpeDataListener _p) {
+        parent = _p;
+        loadIniFile(_fileString);
+        connect(hostName, serverPort, id);
     }
     
     /**
@@ -152,7 +199,7 @@ public class TCPClient extends Thread {
                     frameEventMethod.invoke(p5parent, new Object[] { this });
 
                 } catch (Exception e) {
-                    err("Could not invoke the \"frameEvent()\" method for some reason.");
+                    err("Could not invoke the \"mpeFrameEvent()\" method for some reason.");
                     e.printStackTrace();
                     frameEventMethod = null;
                 }
@@ -161,26 +208,6 @@ public class TCPClient extends Thread {
         }
     }
     
-    /**
-     * Builds a Client using an INI file and a parent MpeDataListener.
-     * 
-     * The parent MpeDataListener must have a method called 
-     * "frameEvent(UDPClient c)", which handles syncing up the frame rate on the
-     * multiple screens.  A typical implementation may look like this:
-     *
-     * public void frameEvent(Client c){
-     *   if (!started) started = true;
-     *   // Do your computation and paint to the screen here
-     * }
-     *
-     * @param _fileString the path to the INI file 
-     * @param _p the parent MpeDataListener
-     */
-    public TCPClient(String _fileString, MpeDataListener _p) {
-        parent = _p;
-        loadIniFile(_fileString);
-        connect(hostName, serverPort, id);
-    }
 
     /**
      * Loads the settings from the Client INI file.
@@ -229,6 +256,22 @@ public class TCPClient extends Thread {
     }
     
     /**
+     * Initialise a timer to check connection & reconnect if need be.
+     */
+    
+    public void initConnectionCheckTimer() {
+    	initConnectionCheckTimer(5000); // every 5 seconds
+	}
+    
+    public void initConnectionCheckTimer(int milliseconds) {
+    	out("initConnectionCheckTimer");
+        connection_check_timer = new ConnectionCheckTimerTask(new Timer());
+        out("Checking for connection every " + milliseconds + " ms");
+        connection_check_timer.startTimer(milliseconds);
+	}
+    
+    
+    /**
      * Sets the server address.
      * 
      * @param _hostName the server host name
@@ -237,7 +280,12 @@ public class TCPClient extends Thread {
         if (_hostName != null)
             hostName = _hostName;
     }
-        
+    
+    /** @return the server host name adamh added*/
+    public String getHostName() { return hostName; }
+    
+    public String getLocalIP() {return socket.getLocalAddress().getHostAddress() ; } 
+    
     /**
      * Sets the server port.
      * 
@@ -349,8 +397,18 @@ public class TCPClient extends Thread {
     /** @return the client framerate */  
     public float getFPS() { return fps; }
     
+    /** @return the client average framerate */  
+    public float getSmoothedFPS() { return smoothed_fps; }
+    
     /** @return whether or not the client is rendering */  
     public boolean isRendering() { return rendering; }
+    
+    /** @return whether or not the client is running adamh added */  
+    public boolean isRunning() { return running; }
+    
+    /** @return whether or not the client is connected to server. adamh added */  
+    public boolean isConnected() { return connected; }
+        
     
     /**
      * Sets the field of view of the camera when rendering in 3D.
@@ -471,7 +529,7 @@ public class TCPClient extends Thread {
      * @param _str the message to output.
      */
     private void print(String _str) {
-        System.out.println("Client: " + _str);
+        System.out.println("mpe.Client: " + _str);
     }
     
     /**
@@ -488,18 +546,34 @@ public class TCPClient extends Thread {
      * tell the server it is ready.
      */
     public void start() {
-        try {
+    	
+    	if (DEBUG) out("Starting! reconnection=" + reconnection);
+    	
+		try {
             socket = new Socket(hostName, serverPort);
             is = socket.getInputStream();
             //dis = new DataInputStream(is);
-            brin = new BufferedReader(new InputStreamReader(is));
+            brin = new BufferedReader(new InputStreamReader(is )); //, "UTF-16"));
+            
             os = socket.getOutputStream();
             dos = new DataOutputStream(os);
         } catch (IOException e) {
             e.printStackTrace();
-        }
+            return; // adamh, dont start running as there was serious error. perhaps server is down.
+        }	        
+	    
+        connected = true;
         running = true;
-        super.start();
+        
+        if(reconnection) { 
+        	// run was broken so lets start it manually again. Possibly incredibly bad Java practice but it works!
+        	// Would be better to have a connection manager that re instantiated a TCPClient instance (like MPEServer does with Connection).
+        	// but would require large refactor and change the API.
+        	run();
+        }else{
+        	super.start();
+        }
+        
     }
     
     /**
@@ -514,9 +588,10 @@ public class TCPClient extends Thread {
         try {
             while (running) {
              // read packet
-                String msg = brin.readLine();//dis.readUTF();
+                String msg = brin.readLine(); //dis.readUTF();
                 if (msg == null) {
                     //running = false;
+                	connectionLost();
                     break;
                 } else {
                     read(msg);
@@ -530,13 +605,34 @@ public class TCPClient extends Thread {
                     e.printStackTrace();
                 }
             }
+            
             is.close();
             
         } catch (IOException e) {
             e.printStackTrace();
+            connectionLost();
         }
+         
     }
     
+        
+    /**
+     * Handles connection lost from server
+     * 
+     * 
+     */
+    
+    private void connectionLost() {
+    	System.out.println("mpe.TCPClient:connectionLost");
+    	connected = false;
+        running = false;
+        
+        rendering = false; // just in case it was mid render   
+        
+        // stop the thread as well?        
+        reconnection = true; // so if start is called again we know its already viable        
+    }
+        
     /**
      * Reads and parses a message from the server.
      * 
@@ -546,11 +642,19 @@ public class TCPClient extends Thread {
     private void read(String _serverInput) {
         if (DEBUG) out("Receiving: " + _serverInput);
         
-        // a "G" startbyte will trigger a frameEvent.
+        // a "G" startbyte will trigger a mpeFrameEvent.
         // if it's a B, we also have to get a byteArray
         // if it's an I, we also have to get an intArray
         char c = _serverInput.charAt(0);
-        if (c == 'G' || c == 'B' || c == 'I') {
+        
+        if(c == 'R'){
+    		if(frameCount != 0){
+    			//we received a reset signal
+    			reset();
+    			if (DEBUG) out("Received frame reset");
+    		}
+    		
+    	}else if (c == 'G' || c == 'B' || c == 'I') {
             if (!allConnected) {
                 if (DEBUG) out("all connected!");
                 allConnected = true;
@@ -615,6 +719,11 @@ public class TCPClient extends Thread {
                 // calculate new framerate
                 float ms = System.currentTimeMillis() - lastMs;
                 fps = 1000.f / ms;
+                
+                // time = time * 0.9 + last_frame * 0.1
+                last_frame_time = (last_frame_time * 0.9f + ms * 0.1f); // see http://stackoverflow.com/questions/87304/calculating-frames-per-second-in-a-game/87333#87333
+                smoothed_fps = 1000.f / last_frame_time;
+                
                 lastMs = System.currentTimeMillis();
                 
                 if (useProcessing) {
@@ -624,14 +733,14 @@ public class TCPClient extends Thread {
                             frameEventMethod.invoke(p5parent, new Object[] { this });
                         
                         } catch (Exception e) {
-                            err("Could not invoke the \"frameEvent()\" method for some reason.");
+                            err("Could not invoke the \"mpeFrameEvent()\" method for some reason.");
                             e.printStackTrace();
                             frameEventMethod = null;
                         } 
                     }
                     
                 } else {
-                    parent.frameEvent(this);
+                    parent.mpeFrameEvent(this);
                 }
                 
             } else {
@@ -640,7 +749,40 @@ public class TCPClient extends Thread {
             }
         }
     }
+    
+    /**
+     * Server has reset the frameCount as a connection was lost
+     * 
+     */
+    
+    private void reset() {
+    	if (DEBUG) out("Reseting");
 
+    	// shouldReset = false;
+    	allConnected = false;
+    	frameCount = 0; //zero it so every thing will be in sync again
+    	
+    	// dispatch a resetEvent
+    	
+    	if (useProcessing) {
+            if (!autoMode) {
+                try {
+                    // call the method with this object as the argument!
+                	resetEventMethod.invoke(p5parent, new Object[] { this });
+                
+                } catch (Exception e) {
+                    err("Could not invoke the \"resetEventMethod()\" method for some reason.");
+                    e.printStackTrace();
+                    resetEventMethod = null;
+                } 
+            }
+            
+        } else {
+            parent.mpeResetEvent(this);
+        }
+    	
+    }
+    
     /**
      * Send a message to the server using UDP.
      * 
@@ -754,7 +896,7 @@ public class TCPClient extends Thread {
     /**
      * Returns true of false based on whether a String message is available from
      *  the server.
-     * This should be used inside "frameEvent()" since messages are tied to 
+     * This should be used inside "mpeFrameEvent()" since messages are tied to 
      * specific frames.
      * 
      * @return true if a new String message is available
@@ -765,7 +907,7 @@ public class TCPClient extends Thread {
 
     /**
      * Returns an array of messages from the server.
-     * This should be used inside "frameEvent()" since messages are tied to 
+     * This should be used inside "mpeFrameEvent()" since messages are tied to 
      * specific frames. It also should only be called after checking that 
      * {@link #messageAvailable()} returns true.
      * 
@@ -778,7 +920,7 @@ public class TCPClient extends Thread {
     /**
      * Returns true of false based on whether integer data is available from the
      *  server.
-     * This should be used inside "frameEvent()" since messages are tied to 
+     * This should be used inside "mpeFrameEvent()" since messages are tied to 
      * specific frames.
      *
      * @return true if an array of integers is available
@@ -789,7 +931,7 @@ public class TCPClient extends Thread {
     
     /**
      * Returns an array of integers from the server.
-     * This should be used inside "frameEvent()" since messages are tied to 
+     * This should be used inside "mpeFrameEvent()" since messages are tied to 
      * specific frames. It also should only be called after checking that 
      * {@link #intsAvailable()} returns true.
      * 
@@ -802,7 +944,7 @@ public class TCPClient extends Thread {
     /**
      * Returns true of false based on whether byte data is available from the
      *  server.
-     * This should be used inside "frameEvent()" since messages are tied to 
+     * This should be used inside "mpeFrameEvent()" since messages are tied to 
      * specific frames.
      *
      * @return true if an array of bytes is available
@@ -813,7 +955,7 @@ public class TCPClient extends Thread {
 
     /**
      * Returns an array of bytes from the server.
-     * This should be used inside "frameEvent()" since messages are tied to 
+     * This should be used inside "mpeFrameEvent()" since messages are tied to 
      * specific frames. It also should only be called after checking that 
      * {@link #bytesAvailable()} returns true.
      * 
@@ -847,4 +989,36 @@ public class TCPClient extends Thread {
         interrupt();      // In case the thread is waiting. . .
     }
 
+    public String getAddress() {
+    	// pretty string
+    	return hostName + ":" + serverPort;
+    }
+    
+    
+  //********************** connect timer  **********************************   
+    
+    private class ConnectionCheckTimerTask extends TimerTask{
+    	
+    	public Timer timer;
+    	
+    	public ConnectionCheckTimerTask(Timer timer) {
+    		this.timer = timer;
+    	}
+    	
+    	public void startTimer(long delay_ms) {
+    		timer.schedule(connection_check_timer, delay_ms, delay_ms);
+    	}
+    	
+    	@Override
+    	public void run() {
+    	   	//out("Connect Timer Elapsed @" + (new Date()) + " connected=" + connected);
+    	   	if(!connected) {
+        		out("connection timer elapsed with no connection @ " + (new Date()) + ". Attempting reconnection to " + getAddress()); // " @" + System.currentTimeMillis());
+        		start();
+        	}
+    	   	
+    	}
+    
+    }
+    
 }

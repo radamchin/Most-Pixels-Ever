@@ -7,5 +7,9 @@
 package mpe.client;
 
 public interface MpeDataListener {
-	public void frameEvent(TCPClient c);
+	
+	public void mpeFrameEvent(TCPClient c);
+	
+	public void mpeResetEvent(TCPClient c);
+	
 }

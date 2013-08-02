@@ -14,7 +14,7 @@ public class AutoBalls extends PApplet {
     //--------------------------------------
     final int ID = 0;
 
-    ArrayList balls;
+    ArrayList<Ball> balls;
     TCPClient client;
 
     //--------------------------------------
@@ -26,7 +26,7 @@ public class AutoBalls extends PApplet {
     public void setup() {
         // make a new Client using an INI file
         // sketchPath() is used so that the INI file is local to the sketch
-        client = new TCPClient(sketchPath("ini/mpeSc"+ID+".ini"), this);
+        client = new TCPClient(sketchPath("mpeSc"+ID+".ini"), this);
         
         // the size is determined by the client's local width and height
         size(client.getLWidth(), client.getLHeight());
@@ -38,7 +38,7 @@ public class AutoBalls extends PApplet {
         background(255);
         
         // add a "randomly" placed ball
-        balls = new ArrayList();
+        balls = new ArrayList<Ball>();
         Ball ball = new Ball(random(client.getMWidth()), random(client.getMHeight()));
         balls.add(ball);
         

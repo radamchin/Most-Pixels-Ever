@@ -8,7 +8,7 @@
 
 package mpe.config;
 
-import java.io.BufferedReader;
+//import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -27,16 +27,16 @@ private boolean fileExists = false;
  */
 	public FileParser(String filePathS){
 		File filePath = new File(filePathS);
-		FileParser(filePath);
+		_FileParser(filePath);
 	}
 	/**
 	 * Constructs FileParser and loads in the init file from a File.
 	 * @param filePath
 	 */
 	public FileParser(File filePath){
-		FileParser(filePath);
+		_FileParser(filePath);
 	}
-	private void FileParser(File file){
+	private void _FileParser(File file){
 		//check for ini file
 		if (file.exists()) {
 			try {
@@ -104,7 +104,7 @@ private boolean fileExists = false;
 	 * @throws IOException
 	 */
 	private String getIniFile(File iniFile) throws IOException {
-		BufferedReader in = null;
+		//BufferedReader in = null;
 		String inputtext = "";
 		// Create an input stream and file channel
 		// Using first arguemnt as file name to read in
@@ -115,6 +115,7 @@ private boolean fileExists = false;
 		bb = ByteBuffer.allocate((int) fc.size());
 		fc.read(bb);
 		fc.close();
+		fis.close();
 		// Convert ByteBuffer to one long String
 		inputtext = new String(bb.array());
 		//remove comments
@@ -141,7 +142,7 @@ private boolean fileExists = false;
 	 */
 	private String parseInitString(String attribute, String iniFile) {
 		String parsedInfo = null;
-		int value = -1;
+		//int value = -1;
 		String tagregex = attribute + "=(.*?);";
 		Pattern p2 = Pattern.compile(tagregex);
 		Matcher m2 = p2.matcher(iniFile);
