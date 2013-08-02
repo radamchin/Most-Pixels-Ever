@@ -1,8 +1,15 @@
 # Most Pixels Ever
 
-Most Pixels Ever is an open-source Java / C++ framework for spanning Processing sketches and openFrameWorks applications across multiple screens.
+Most Pixels Ever is an open-source Java / C++ / AS3 framework for spanning Processing sketches, openFrameWorks applications and Adobe Air applications across multiple screens.
 
 ![Screenshot](http://farm3.static.flickr.com/2199/2124879919_6a8e447903_m.jpg)  ![Screenshot](http://farm3.static.flickr.com/2201/2125653100_1954bd6189_m.jpg)  ![Screenshot](http://farm3.static.flickr.com/2190/2124878313_c302b6aac7_m.jpg)
+
+# In this fork
+
+This fork adds an AS3 (Air) based client library, and some tweaks to the java Server and Client.
+
+![Screenshot](http://farm4.staticflickr.com/3817/9421713146_8f939ab741_z.jpg) 
+
 
 # Getting Started:
 
