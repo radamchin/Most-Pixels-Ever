@@ -1,0 +1,12 @@
+<mpe
+	 id="0"
+	 server="localhost"
+	 port="9001"
+	 localLocation="0,0"
+	 localScreenSize="300,480" 
+	 masterDimensions="1024,480"
+	 totalScreens="3"
+	 debug="0"
+	 auto_reconnect="1"
+	 connection_check_interval_secs="30"		
+/>
